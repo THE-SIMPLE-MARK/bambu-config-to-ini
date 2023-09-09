@@ -8,7 +8,6 @@ use std::path::Path;
 mod search_folder;
 use search_folder::search_folder;
 
-#[derive(Debug)]
 pub enum SectionDataValue {
   Single(Value),
   Array(Vec<Value>),
@@ -25,9 +24,6 @@ pub fn convert_section<'a>(
   let mut section_data: HashMap<String, SectionDataValue> = HashMap::new();
   let mut section_title = String::new();
 
-  // TODO: use search_folder to search for the file to inherit if present
-  //  then modify search_folder to read & parse the JSON and run convert_section on that JSON as well
-
   // check if the section inherits from any other files
   if obj.contains_key("inherits") {
     let inherits = &Value::to_string(obj.get("inherits").unwrap());
@@ -40,7 +36,7 @@ pub fn convert_section<'a>(
         .replace("\"", "")
         .as_str(),
     );
-    println!("|| File inherited: {:?}", inherits_file);
+    println!("File inherited: {:?}", inherits_file);
 
     // read JSON file
     let mut json_file = File::open(inherits_file.unwrap())?;
@@ -55,8 +51,6 @@ pub fn convert_section<'a>(
 
     // convert JSON object to INI-like content
     let Ok(_) = convert_section(json_obj, start_dir, true, &mut section_data) else { todo!() };
-
-    println!("Successfully converted recursive data!");
   }
 
   // iterate through the JSON object and add the section data to section_data
@@ -95,15 +89,7 @@ pub fn convert_section<'a>(
     };
   }
 
-  if !is_recursive {
-    println!("Now printing data...");
-    for (key, value) in section_data.iter() {
-      println!("| Key: {}, Value: {:?}", key, value);
-    }
-  }
-
   let mut ini = String::new();
-  // TODO: iterate through section_data and add the data to ini
   if !is_recursive {
     if !section_title.is_empty() {
       ini.push_str(format!("[{}]\n", section_title).replace("\"", "").as_str());
