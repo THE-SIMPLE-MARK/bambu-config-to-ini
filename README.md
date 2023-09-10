@@ -1,5 +1,5 @@
 # bambu-config-to-ini
-A CLI for converting Bambu Studio config files to .ini for use in Prusa Slicer and similar software.
+A CLI for converting Bambu Studio config files to `.ini` for use in Prusa Slicer and similar software. It supports inheritance, so the entire configuration tree is converted directly into one `.ini` file.
 
 ### Note: This is a quick side project I made for a bigger project, so it is not exactly developed for production use.
 If anyone would like to use this CLI tool with actual panic messages and an overall better experience then feel free to contribute, otherwise open an issue about what you'd like to be added/changed and I will do my best to implement that. 
