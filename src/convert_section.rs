@@ -8,133 +8,149 @@ use std::path::Path;
 mod search_folder;
 use search_folder::search_folder;
 
+#[derive(Debug)]
 pub enum SectionDataValue {
-  Single(Value),
-  Array(Vec<Value>),
+	Single(Value),
+	Array(Vec<Value>),
 }
 
 type SectionDataMap = HashMap<String, SectionDataValue>;
 
 pub fn convert_section<'a>(
-  obj: Map<String, Value>,
-  start_dir: &Path,
-  is_recursive: bool,
-  upstream_section_data: &mut SectionDataMap,
+	obj: Map<String, Value>,
+	start_dir: &Path,
+	is_recursive: bool,
+	upstream_section_data: &mut SectionDataMap,
 ) -> Result<String, io::Error> {
-  let mut section_data: HashMap<String, SectionDataValue> = HashMap::new();
-  let mut section_title = String::new();
+	let mut section_data: HashMap<String, SectionDataValue> = HashMap::new();
+	let mut section_title = String::new();
 
-  // check if the section inherits from any other files
-  if obj.contains_key("inherits") {
-    let inherits = &Value::to_string(obj.get("inherits").unwrap());
+	// check if the section inherits from any other files
+	if obj.contains_key("inherits") {
+		let inherits = &Value::to_string(obj.get("inherits").unwrap());
 
-    // search for that file
-    let inherits_file = search_folder(
-      start_dir,
-      format!("{:?}.json", inherits)
-        .replace("\\", "")
-        .replace("\"", "")
-        .as_str(),
-    );
-    println!("File inherited: {:?}", inherits_file);
+		// search for that file
+		let inherits_file = search_folder(
+			start_dir,
+			format!("{:?}.json", inherits)
+				.replace("\\", "")
+				.replace("\"", "")
+				.as_str(),
+		);
 
-    // read JSON file
-    let mut json_file = File::open(inherits_file.unwrap())?;
-    let mut json_content = String::new();
-    json_file
-      .read_to_string(&mut json_content)
-      .expect("TODO: panic message");
+		if inherits_file != None {
+			println!("File inherited: {:?}", inherits_file);
 
-    // parse JSON
-    let json_value: Value = serde_json::from_str(&json_content)?;
-    let Value::Object(json_obj) = json_value else { todo!() };
+			// add to section_data so it doesn't get overwritten
+			section_data
+				.entry("inherits".parse().unwrap())
+				.or_insert_with(|| SectionDataValue::Single(inherits.parse().unwrap()));
 
-    // convert JSON object to INI-like content
-    let Ok(_) = convert_section(json_obj, start_dir, true, &mut section_data) else { todo!() };
-  }
+			// read JSON file
+			let mut json_file = File::open(inherits_file.unwrap())?;
+			let mut json_content = String::new();
+			json_file
+				.read_to_string(&mut json_content)
+				.expect("TODO: panic message");
 
-  // iterate through the JSON object and add the section data to section_data
-  for (key, value) in &obj {
-    if key == "type" {
-      section_title = value.to_string();
-    }
+			// parse JSON
+			let json_value: Value = serde_json::from_str(&json_content)?;
+			let Value::Object(json_obj) = json_value else { todo!() };
 
-    match value {
-      // handle arrays
-      Value::Array(child_array) => {
-        // if we are in recursive mode we want to merge the data to the parent function
-        if is_recursive {
-          upstream_section_data
-            .entry(key.clone())
-            .or_insert(SectionDataValue::Array(child_array.clone()))
-        } else {
-          section_data
-            .entry(key.clone())
-            .or_insert(SectionDataValue::Array(child_array.clone()))
-        }
-      }
+			// convert JSON object to INI-like content
+			let Ok(_) = convert_section(json_obj, start_dir, true, if is_recursive { upstream_section_data } else { &mut section_data }) else { todo!() };
 
-      // handle other types (numbers, strings, etc.)
-      _ => {
-        if is_recursive {
-          upstream_section_data
-            .entry(key.clone())
-            .or_insert(SectionDataValue::Single(value.clone()))
-        } else {
-          section_data
-            .entry(key.clone())
-            .or_insert(SectionDataValue::Single(value.clone()))
-        }
-      }
-    };
-  }
+			println!("Successfully converted recursive data!");
+		} else {
+			eprintln!("ERROR: Could not find file to be inherited: {:?}", inherits);
+		}
+	}
 
-  let mut ini = String::new();
-  if !is_recursive {
-    if !section_title.is_empty() {
-      ini.push_str(format!("[{}]\n", section_title).replace("\"", "").as_str());
-    }
+	// iterate through the JSON object and add the section data to section_data
+	for (key, value) in &obj {
+		if key == "type" {
+			section_title = value.to_string();
+		}
 
-    for (key, value) in section_data {
-      match value {
-        // handle arrays
-        SectionDataValue::Single(Value::Array(child_array)) => {
-          ini.push_str(&format!("{} = ", key)); // sdd space after =
-          for (i, item) in child_array.iter().enumerate() {
-            let item_str = match item {
-              Value::Number(num) => num.to_string(),
-              Value::String(str_val) => {
-                if str_val.contains(";") {
-                  format!("\"{}\"", str_val)
-                } else {
-                  str_val.clone()
-                }
-              }
-              _ => item.to_string(),
-            };
-            ini.push_str(&item_str);
-            if i < child_array.len() - 1 {
-              ini.push(',');
-            }
-          }
-          ini.push('\n');
-        }
+		match value {
+			// handle arrays
+			Value::Array(child_array) => {
+				// if we are in recursive mode we want to merge the data to the parent function
+				if is_recursive {
+					upstream_section_data
+						.entry(key.clone())
+						.or_insert_with(|| SectionDataValue::Array(child_array.clone()))
+				} else {
+					section_data
+						.entry(key.clone())
+						.or_insert_with(|| SectionDataValue::Array(child_array.clone()))
+				}
+			}
 
-        // handle other types (numbers, strings, etc.)
-        SectionDataValue::Single(value) => {
-          let value_str = &Value::to_string(&value);
-          let value_str = value_str.trim_matches('"'); // remove double quotes from numbers
-          if value_str.contains(";") {
-            ini.push_str(&format!("{} = \"{}\"\n", key, value_str)); // add space after = and enclose in double quotes
-          } else {
-            ini.push_str(&format!("{} = {}\n", key, value_str)); // add space after =
-          }
-        }
+			// handle other types (numbers, strings, etc.)
+			_ => {
+				if is_recursive {
+					upstream_section_data
+						.entry(key.clone())
+						.or_insert_with(|| SectionDataValue::Single(value.clone()))
+				} else {
+					section_data
+						.entry(key.clone())
+						.or_insert_with(|| SectionDataValue::Single(value.clone()))
+				}
+			}
+		};
+	}
 
-        _ => (),
-      }
-    }
-  }
+	let mut ini = String::new();
+	if !is_recursive {
+		if !section_title.is_empty() {
+			ini.push_str(format!("[{}]\n", section_title).replace("\"", "").as_str());
+		}
 
-  Ok(ini)
+		for (key, value) in &section_data {
+			println!("Key: {:?} Value: {:?}", key, value)
+		}
+
+		for (key, value) in section_data {
+			match value {
+				// handle arrays
+				SectionDataValue::Array(child_array) => {
+					ini.push_str(&format!("{} = ", key)); // sdd space after =
+					for (i, item) in child_array.iter().enumerate() {
+						let item_str = match item {
+							Value::Number(num) => num.to_string(),
+							Value::String(str_val) => {
+								if str_val.contains(";") {
+									format!("\"{}\"", str_val)
+								} else {
+									str_val.clone()
+								}
+							}
+							_ => item.to_string(),
+						};
+						ini.push_str(&item_str);
+						if i < child_array.len() - 1 {
+							ini.push(',');
+						}
+					}
+					ini.push('\n');
+				}
+
+				// handle other types (numbers, strings, etc.)
+				SectionDataValue::Single(value) => {
+					let value_str = &Value::to_string(&value);
+					let value_str = value_str.trim_matches('"'); // remove double quotes from numbers
+					if value_str.contains(";") {
+						ini.push_str(&format!("{} = \"{}\"\n", key, value_str));
+					// add space after = and enclose in double quotes
+					} else {
+						ini.push_str(&format!("{} = {}\n", key, value_str)); // add space after =
+					}
+				}
+			}
+		}
+	}
+
+	Ok(ini)
 }
